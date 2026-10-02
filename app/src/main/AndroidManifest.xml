@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Wi-Fi / mobile data indicator -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:allowBackup="true"
@@ -23,19 +21,21 @@
             </intent-filter>
         </activity>
 
-        <!-- Draws the replacement status bar strip on top of the real one.
-             Requires the SYSTEM_ALERT_WINDOW ("draw over other apps") grant. -->
+        <!-- Draws the replacement status bar. TYPE_ACCESSIBILITY_OVERLAY is the
+             only non-root window type that sits above the real status bar. -->
         <service
-            android:name=".overlay.OverlayService"
+            android:name=".overlay.StatusBarAccessibilityService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Persistent custom status bar overlay" />
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/statusbar_accessibility_config" />
         </service>
 
-        <!-- Feeds active-notification package names to the overlay so it can
-             render the user's custom icon order instead of the system's. -->
+        <!-- Supplies the notification icons shown in the bar. -->
         <service
             android:name=".service.NotificationIconListenerService"
             android:exported="false"
@@ -44,12 +44,6 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-
-        <receiver android:name=".service.BootReceiver" android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
 
     </application>
 </manifest>

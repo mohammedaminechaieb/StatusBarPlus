@@ -1,5 +1,7 @@
 package com.statusbarplus.app.service
 
+import android.app.NotificationManager
+import android.graphics.drawable.Icon
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -7,30 +9,49 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Real status bar icons come from active notifications. We can't relocate
- * the system's own icons (no API for that without root), so instead we
- * mirror "which apps currently have an active notification" and let the
- * overlay draw ITS OWN icon row in the user's chosen order, visually
- * replacing what's underneath. This service is just the data source.
+ * Real status bar icons come from active notifications. We can't move the
+ * system's own icons without root, so this mirrors "which apps have a
+ * notification right now" together with each one's SMALL icon — the
+ * monochrome glyph the real status bar draws — so the overlay can show
+ * the same icons in the user's chosen order.
  */
 class NotificationIconListenerService : NotificationListenerService() {
 
     companion object {
-        private val _activePackages = MutableStateFlow<Set<String>>(emptySet())
-        val activePackages: StateFlow<Set<String>> = _activePackages.asStateFlow()
+        private val _activeIcons = MutableStateFlow<Map<String, Icon?>>(emptyMap())
+
+        /** package -> small icon, in arrival order (oldest first). */
+        val activeIcons: StateFlow<Map<String, Icon?>> = _activeIcons.asStateFlow()
+
+        private val _connected = MutableStateFlow(false)
+        val connected: StateFlow<Boolean> = _connected.asStateFlow()
     }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        _activePackages.value = activeNotifications?.map { it.packageName }?.toSet() ?: emptySet()
+        _connected.value = true
+        rebuild()
     }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification) {
-        _activePackages.value = _activePackages.value + sbn.packageName
+    override fun onListenerDisconnected() {
+        _connected.value = false
+        super.onListenerDisconnected()
     }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        val stillActive = activeNotifications?.map { it.packageName }?.toSet() ?: emptySet()
-        _activePackages.value = stillActive
+    override fun onNotificationPosted(sbn: StatusBarNotification) = rebuild()
+    override fun onNotificationRemoved(sbn: StatusBarNotification) = rebuild()
+
+    private fun rebuild() {
+        val all = runCatching { activeNotifications }.getOrNull() ?: return
+        val ranking = currentRanking
+        val icons = LinkedHashMap<String, Icon?>()
+        all.sortedBy { it.postTime }.forEach { sbn ->
+            if (sbn.packageName == packageName) return@forEach
+            // The real status bar hides "minimized" (IMPORTANCE_MIN) notifications.
+            val r = Ranking()
+            if (ranking?.getRanking(sbn.key, r) == true && r.importance <= NotificationManager.IMPORTANCE_MIN) return@forEach
+            if (sbn.packageName !in icons) icons[sbn.packageName] = sbn.notification.smallIcon
+        }
+        _activeIcons.value = icons
     }
 }

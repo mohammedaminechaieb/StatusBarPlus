@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Used only to host the overlay window above the real status bar: no
+     window-content access, no key filtering, the narrowest event type. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeAnnouncement"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="false"
+    android:notificationTimeout="100"
+    android:settingsActivity="com.statusbarplus.app.MainActivity"
+    android:description="@string/accessibility_service_description" />

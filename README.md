@@ -1,85 +1,31 @@
-# StatusBar+ — Project 3 / 6
+# StatusBar+
 
-Reorder status bar icons, custom battery & clock styles. Native Android, Kotlin.
+A custom status bar: choose the clock style, battery style, colours and the order of notification icons. Kotlin + Jetpack Compose.
 
-## Important — how this actually works (read this before you start)
-Android does **not** give any non-root, non-system app a way to reach into the real
-SystemUI status bar and reorder its icons or change its clock/battery renderer — that
-UI is owned by the `com.android.systemui` privileged system process, not something
-`SYSTEM_ALERT_WINDOW` or any public API can touch. Apps that claim to do this on
-un-rooted phones (and the ones on the Play Store that look like they do) all use the
-same workaround StatusBar+ uses:
-
-**Draw a full-width strip on top of the real status bar** (via a
-`TYPE_APPLICATION_OVERLAY` window) showing your own clock, battery, and icon row —
-so visually it looks reordered/restyled, even though the real status bar underneath
-is untouched. That's what's built here. I wanted to flag this plainly rather than
-ship something that quietly does less than "reorder status bar icons" sounds like.
-
-If you specifically need the *real* system status bar modified (not an overlay), that
-requires either a rooted device + a Xposed/LSPosed module, or being a preloaded
-OEM system app (this is literally how Samsung Good Lock does it) — both are a very
-different, much bigger project than a 2-week sprint. Worth deciding now whether the
-overlay approach is good enough for what you want to ship.
-
-## What's included here (the actual code)
+## Build
+Open the folder in Android Studio and run, or from a terminal:
 ```
-StatusBarPlus/
-├── build.gradle.kts, settings.gradle.kts, gradle.properties
-└── app/
-    ├── build.gradle.kts
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── java/com/statusbarplus/app/
-        │   ├── MainActivity.kt
-        │   ├── data/
-        │   │   ├── Styles.kt              (ClockStyle / BatteryStyle enums)
-        │   │   └── PrefsStore.kt          (DataStore-backed settings)
-        │   ├── overlay/
-        │   │   ├── OverlayService.kt      (owns the overlay window, foreground service)
-        │   │   ├── StatusBarCanvasView.kt (draws clock/battery/icons via Canvas)
-        │   │   └── BatteryReader.kt
-        │   ├── service/
-        │   │   ├── NotificationIconListenerService.kt  (tracks apps with active notifications)
-        │   │   └── BootReceiver.kt        (restarts overlay after reboot if it was on)
-        │   └── ui/
-        │       ├── HomeScreen.kt
-        │       ├── IconReorderScreen.kt
-        │       ├── ClockStyleScreen.kt
-        │       └── BatteryStyleScreen.kt
-        └── res/values/ (strings.xml, themes.xml)
+gradlew assembleDebug
 ```
 
-## What YOU need to add locally
-1. Open in Android Studio — generates `gradle/wrapper/`, `local.properties`, and pulls
-   every dependency (Compose, DataStore) into your Gradle cache, same as HaptiKit.
-2. Launcher icon via Image Asset (New → Image Asset) — cosmetic, skipped here.
-3. On the device you test on: grant "draw over other apps" and "notification access"
-   from the Home screen buttons — both open the correct system settings screen for you.
+## Set up on the phone (once)
+The app's checklist walks you through it:
+1. **Turn on the StatusBar+ service**: Accessibility → StatusBar+ → on.
+2. **Allow notification access**, so your bar can show the same app icons the real one does.
+Then flip **Custom status bar** on.
 
-## How the pieces fit together
-- **NotificationIconListenerService** is the data source for "which apps currently have
-  an icon that would show" — it can't read the *real* status bar's icon list (no API
-  exists for that either), so it infers the same thing from active notifications, which
-  is what actually puts icons in the real status bar in the first place.
-- **IconReorderScreen** lets you set a priority order for those apps with plain up/down
-  buttons — no external drag-and-drop dependency needed for v0.1.
-- **PrefsStore** (Jetpack DataStore) is the single source of truth; **OverlayService**
-  collects it as Flows so style/order changes apply live without restarting the overlay.
-- **StatusBarCanvasView** does the actual drawing — ticks once a second for the clock,
-  redraws battery % from a fresh `ACTION_BATTERY_CHANGED` sticky-intent read, and lays
-  out app icons from `iconOrder` using `PackageManager.getApplicationIcon`.
-- **BootReceiver** restarts the overlay after a reboot only if it was switched on before
-  (checked via `PrefsStore.overlayEnabled`).
+## Using it
+- The preview at the top updates live as you change things.
+- **Clock**: follow the phone's setting, 24-hour, 12-hour, with seconds, minimal, or with the date.
+- **Battery**: icon + percent, icon only, percent only, ring, or a dot that turns red when low. Charging shows a bolt and turns the level green.
+- **Colors**: bar background and text/icon colour.
+- **Notification icon order**: put the apps you care about first. Apps keep their place even when they have nothing showing, and *Show up to N icons* caps how many appear.
+- **Show Wi-Fi / mobile data** and **Hide in landscape** (so games and videos keep the full screen).
 
-## Known v0.1 limitations (matches the roadmap's scope)
-- This replaces the *visual* status bar with a look-alike; the real one is still there
-  underneath (invisible behind the overlay, but still functionally present).
-- Notification-shade pull-down still works normally — the overlay doesn't intercept touch
-  (`FLAG_NOT_FOCUSABLE`), it's purely a visual layer.
-- No quick-settings tile to toggle the overlay yet (roadmap mentions the Quick Settings
-  Tile API as part of the stack) — the Home screen switch covers this for v0.1; adding a
-  QS Tile is a quick follow-up if you want one-tap toggling from the shade.
+Pulling down the notification shade works exactly as normal; the bar ignores touches.
 
-## Next when you're ready
-Tell me when this one's running and I'll move on to **SoundSkin** (Kotlin, animated custom volume HUD overlay).
+## How it works (and its limits)
+Android doesn't let apps change the real status bar without root, so StatusBar+ draws a look-alike strip on top of it. It uses an accessibility overlay because that's the only non-root window type that sits *above* the system status bar; an ordinary overlay would sit underneath it. This also means no foreground-service notification and automatic restart after a reboot. The service doesn't read screen content.
+
+- Notification icons are the apps' own small status-bar glyphs, tinted to your colour. Minimized notifications are skipped, like the real bar does.
+- Mobile signal strength isn't shown (it needs a phone-state permission), so on mobile data you'll see a data indicator instead of bars.

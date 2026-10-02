@@ -1,97 +1,97 @@
 package com.statusbarplus.app.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
+import com.statusbarplus.app.data.BarSettings
 import com.statusbarplus.app.data.PrefsStore
 import com.statusbarplus.app.service.NotificationIconListenerService
 import kotlinx.coroutines.launch
 
 /**
- * Reordering is expressed as: "of the apps that currently have a
- * notification, in what order should their icons appear". We seed the
- * list from active notifications and let the user drag the priority up
- * or down with arrow buttons (keeps this dependency-free — no external
- * drag-and-drop library needed for v0.1).
+ * Priority order for notification icons. The list keeps every app you've
+ * ordered before (even when it has nothing showing right now, so the order
+ * survives), plus any app that currently has a notification.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IconReorderScreen(prefs: PrefsStore, onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val pm = context.packageManager
+    val scope = rememberCoroutineScope()
 
-    val savedOrder by prefs.iconOrder.collectAsState(initial = emptyList())
-    val activePackages by NotificationIconListenerService.activePackages.collectAsState(initial = emptySet())
-
-    // Merge: saved order first (dropping anything no longer active), then
-    // any newly-active packages appended at the end.
-    val orderedList = remember(savedOrder, activePackages) {
-        val known = savedOrder.filter { it in activePackages }
-        val new = activePackages.filter { it !in savedOrder }
-        known + new
+    val settings by prefs.settings.collectAsState(initial = BarSettings())
+    val active by NotificationIconListenerService.activeIcons.collectAsState()
+    val list = remember(settings.iconOrder, active) {
+        settings.iconOrder + active.keys.filter { it !in settings.iconOrder }
     }
 
     fun persist(newOrder: List<String>) {
-        scope.launch { prefs.setIconOrder(newOrder) }
+        scope.launch { prefs.update { it.copy(iconOrder = newOrder) } }
     }
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Reorder icons") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } }
+            title = { Text("Icon order") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
         )
     }) { padding ->
-        if (orderedList.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Text("No apps with active notifications right now.\nTrigger a notification to see it here.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (list.isEmpty()) {
+            Box(Modifier.padding(padding).fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    "No apps yet.\nApps appear here as soon as they post a notification (make sure notification access is on).",
+                    textAlign = TextAlign.Center
+                )
             }
-        } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize()) {
-                items(orderedList, key = { it }) { pkg ->
-                    val label = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
-                    val index = orderedList.indexOf(pkg)
-
-                    ListItem(
-                        headlineContent = { Text(label) },
-                        supportingContent = { Text(pkg) },
-                        trailingContent = {
-                            Row {
-                                IconButton(
-                                    onClick = {
-                                        if (index > 0) {
-                                            val newOrder = orderedList.toMutableList()
-                                            newOrder.removeAt(index); newOrder.add(index - 1, pkg)
-                                            persist(newOrder)
-                                        }
-                                    },
-                                    enabled = index > 0
-                                ) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up") }
-
-                                IconButton(
-                                    onClick = {
-                                        if (index < orderedList.lastIndex) {
-                                            val newOrder = orderedList.toMutableList()
-                                            newOrder.removeAt(index); newOrder.add(index + 1, pkg)
-                                            persist(newOrder)
-                                        }
-                                    },
-                                    enabled = index < orderedList.lastIndex
-                                ) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down") }
+            return@Scaffold
+        }
+        LazyColumn(Modifier.padding(padding).fillMaxSize()) {
+            item {
+                Text(
+                    "Top of the list = leftmost icon. Apps without a notification right now are dimmed but keep their place.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+            itemsIndexed(list, key = { _, pkg -> pkg }) { index, pkg ->
+                val label = remember(pkg) { runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) }
+                val icon = remember(pkg) { runCatching { pm.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull() }
+                val showing = pkg in active
+                ListItem(
+                    leadingContent = {
+                        if (icon != null) Image(icon, null, Modifier.size(36.dp), alpha = if (showing) 1f else 0.4f)
+                    },
+                    headlineContent = { Text(label) },
+                    supportingContent = { Text(if (showing) "Showing now" else "No notification right now") },
+                    trailingContent = {
+                        Row {
+                            IconButton(enabled = index > 0, onClick = {
+                                persist(list.toMutableList().apply { removeAt(index); add(index - 1, pkg) })
+                            }) { Icon(Icons.Default.KeyboardArrowUp, "Move up") }
+                            IconButton(enabled = index < list.lastIndex, onClick = {
+                                persist(list.toMutableList().apply { removeAt(index); add(index + 1, pkg) })
+                            }) { Icon(Icons.Default.KeyboardArrowDown, "Move down") }
+                            if (pkg in settings.iconOrder && !showing) {
+                                IconButton(onClick = { persist(settings.iconOrder - pkg) }) { Icon(Icons.Default.Close, "Forget") }
                             }
                         }
-                    )
-                    Divider()
-                }
+                    }
+                )
             }
         }
     }
